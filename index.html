@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>🛡️ CryptoLock Messenger</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: 'Orbitron', sans-serif;
+      background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+      color: #e0e0e0;
+      padding: 40px;
+    }
+
+    h2, h3 {
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: #00fff0;
+      margin-bottom: 15px;
+    }
+
+    .container {
+      max-width: 960px;
+      margin: auto;
+    }
+
+    .section {
+      background: linear-gradient(145deg, #1f2933, #11181f);
+      padding: 30px;
+      margin-bottom: 30px;
+      border-radius: 15px;
+      box-shadow: 0 0 30px rgba(0, 255, 255, 0.1);
+      transition: all 0.4s ease;
+    }
+
+    .section:hover {
+      transform: translateY(-6px);
+      box-shadow: 0 0 40px rgba(0, 255, 255, 0.3);
+    }
+
+    textarea, input {
+      width: 100%;
+      padding: 14px;
+      margin-top: 12px;
+      border-radius: 10px;
+      background: #0c1622;
+      color: #00ffe5;
+      font-size: 16px;
+      border: 1px solid #00ffe5;
+      resize: vertical;
+      transition: 0.3s ease;
+    }
+
+    textarea:focus, input:focus {
+      background: #122030;
+      outline: none;
+      border-color: #00cfff;
+      box-shadow: 0 0 10px #00fff0;
+    }
+
+    button {
+      background: linear-gradient(45deg, #00f5a0, #00d9f5);
+      border: none;
+      color: #fff;
+      font-size: 16px;
+      padding: 14px 28px;
+      margin-top: 20px;
+      border-radius: 12px;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      transition: all 0.3s ease;
+      box-shadow: 0 0 12px #00fff0;
+    }
+
+    button:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 20px #00fff0, 0 0 40px #00d9f5;
+    }
+
+    ::placeholder {
+      color: #8ff;
+      font-style: italic;
+    }
+
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500&display=swap');
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>🛡️ CryptoLock Messenger</h2>
+
+    <div class="section">
+      <h3> Compose Message</h3>
+      <textarea id="message" rows="4" placeholder="Enter your secret message here..."></textarea>
+      <button onclick="encryptMessage()">Encrypt & Send</button>
+    </div>
+
+    <div class="section">
+      <h3> Encrypted Output</h3>
+      <textarea id="encryptedMessage" rows="4" readonly placeholder="Encrypted message appears here..."></textarea>
+      <textarea id="encryptedKey" rows="4" readonly placeholder="Encrypted AES key appears here..."></textarea>
+    </div>
+
+    <div class="section">
+      <h3> Decrypt</h3>
+      <button onclick="decryptMessage()">Decrypt Message</button>
+      <textarea id="decryptedMessage" rows="4" readonly placeholder="Decrypted message will be shown here..."></textarea>
+    </div>
+  </div>
+
+  <script>
+    let rsaKeyPair;
+    let aesKey;
+    let encryptedAESKey;
+    let encryptedText;
+
+    async function generateRSAKeyPair() {
+      rsaKeyPair = await window.crypto.subtle.generateKey(
+        {
+          name: "RSA-OAEP",
+          modulusLength: 2048,
+          publicExponent: new Uint8Array([1, 0, 1]),
+          hash: "SHA-256"
+        },
+        true,
+        ["encrypt", "decrypt"]
+      );
+    }
+
+    async function generateAESKey() {
+      return await window.crypto.subtle.generateKey(
+        { name: "AES-GCM", length: 256 },
+        true,
+        ["encrypt", "decrypt"]
+      );
+    }
+
+    async function encryptMessage() {
+      const message = document.getElementById("message").value;
+      if (!message) return alert("Please type a message.");
+
+      if (!rsaKeyPair) await generateRSAKeyPair();
+      aesKey = await generateAESKey();
+
+      const encoder = new TextEncoder();
+      const iv = window.crypto.getRandomValues(new Uint8Array(12));
+
+      const cipherText = await window.crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        aesKey,
+        encoder.encode(message)
+      );
+
+      const aesKeyRaw = await window.crypto.subtle.exportKey("raw", aesKey);
+      encryptedAESKey = await window.crypto.subtle.encrypt(
+        { name: "RSA-OAEP" },
+        rsaKeyPair.publicKey,
+        aesKeyRaw
+      );
+
+      document.getElementById("encryptedMessage").value = btoa(
+        JSON.stringify({
+          iv: Array.from(iv),
+          data: Array.from(new Uint8Array(cipherText))
+        })
+      );
+
+      document.getElementById("encryptedKey").value = btoa(
+        String.fromCharCode(...new Uint8Array(encryptedAESKey))
+      );
+
+      encryptedText = cipherText;
+    }
+
+    async function decryptMessage() {
+      if (!encryptedAESKey || !encryptedText) return alert("Nothing to decrypt.");
+
+      const encryptedKeyBuffer = new Uint8Array(
+        atob(document.getElementById("encryptedKey").value)
+          .split("")
+          .map(c => c.charCodeAt(0))
+      );
+
+      const decryptedAESKeyRaw = await window.crypto.subtle.decrypt(
+        { name: "RSA-OAEP" },
+        rsaKeyPair.privateKey,
+        encryptedKeyBuffer
+      );
+
+      const aesCryptoKey = await window.crypto.subtle.importKey(
+        "raw",
+        decryptedAESKeyRaw,
+        { name: "AES-GCM" },
+        true,
+        ["decrypt"]
+      );
+
+      const encryptedPayload = JSON.parse(atob(document.getElementById("encryptedMessage").value));
+      const iv = new Uint8Array(encryptedPayload.iv);
+      const data = new Uint8Array(encryptedPayload.data);
+
+      const decrypted = await window.crypto.subtle.decrypt(
+        { name: "AES-GCM", iv },
+        aesCryptoKey,
+        data
+      );
+
+      const decoder = new TextDecoder();
+      document.getElementById("decryptedMessage").value = decoder.decode(decrypted);
+    }
+  </script>
+</body>
+</html>
